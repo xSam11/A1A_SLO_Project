@@ -46,3 +46,47 @@ REDIS_URL        = os.getenv("REDIS_URL", "")          # optional — leave blan
 # ── Poller ────────────────────────────────────────────────────────────────────
 # Only used when running the script directly in loop mode (not via cron/Lambda).
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "300"))  # 5 minutes
+
+# ── A1A status names (exact Jira workflow names) ─────────────────────────────
+A1A_STATUS_OPEN     = os.getenv("A1A_STATUS_OPEN", "Ready")
+A1A_STATUS_ACTIVE   = os.getenv("A1A_STATUS_ACTIVE", "Active")
+A1A_STATUS_WAITING  = os.getenv("A1A_STATUS_WAITING", "Waiting/Pending SC")
+A1A_STATUS_BLOCKED  = os.getenv("A1A_STATUS_BLOCKED", "Blocked")
+
+# ── OCA status names (exact Jira workflow names) ─────────────────────────────
+OCA_STATUS_OPEN     = os.getenv("OCA_STATUS_OPEN", "To Do")
+OCA_STATUS_PROGRESS = os.getenv("OCA_STATUS_PROGRESS", "In Progress")
+OCA_STATUS_WAITING  = os.getenv("OCA_STATUS_WAITING", "Waiting/Needs Information")
+OCA_STATUS_BLOCKED  = os.getenv("OCA_STATUS_BLOCKED", "Blocked/AWGS")
+
+# ── A1A incident-type statuses ────────────────────────────────────────────────
+A1A_INC_STATUS_OPEN     = os.getenv("A1A_INC_STATUS_OPEN", "Open")
+A1A_INC_STATUS_REOPENED = os.getenv("A1A_INC_STATUS_REOPENED", "Reopened")
+A1A_INC_STATUS_PROGRESS = os.getenv("A1A_INC_STATUS_PROGRESS", "In Progress")
+A1A_INC_STATUS_WAITING  = os.getenv("A1A_INC_STATUS_WAITING", "Waiting")
+A1A_INC_STATUS_BLOCKED  = os.getenv("A1A_INC_STATUS_BLOCKED", "Blocked")
+A1A_INC_STATUS_CLOSED   = os.getenv("A1A_INC_STATUS_CLOSED", "Closed")
+
+# ── OCA incident-type statuses ────────────────────────────────────────────────
+OCA_INC_STATUS_OPEN     = os.getenv("OCA_INC_STATUS_OPEN", "Open")
+OCA_INC_STATUS_PROGRESS = os.getenv("OCA_INC_STATUS_PROGRESS", "In Progress")
+OCA_INC_STATUS_NEEDINFO = os.getenv("OCA_INC_STATUS_NEEDINFO", "Needs information")
+OCA_INC_STATUS_WAITING  = os.getenv("OCA_INC_STATUS_WAITING", "Waiting")
+OCA_INC_STATUS_WAITFB   = os.getenv("OCA_INC_STATUS_WAITFB", "Waiting for feedback")
+OCA_INC_STATUS_BLOCKED  = os.getenv("OCA_INC_STATUS_BLOCKED", "Blocked")
+OCA_INC_STATUS_CLOSED   = os.getenv("OCA_INC_STATUS_CLOSED", "Closed")
+
+# ── Digest bucket thresholds ──────────────────────────────────────────────────
+A1A_ACTIVE_MIN_HOURS      = float(os.getenv("A1A_ACTIVE_MIN_HOURS", "24"))
+A1A_ACTIVE_MAX_HOURS      = float(os.getenv("A1A_ACTIVE_MAX_HOURS", "48"))
+A1A_WAITING_DAYS          = float(os.getenv("A1A_WAITING_DAYS", "7"))
+
+OCA_OPEN_FRESH_MAX_HOURS  = float(os.getenv("OCA_OPEN_FRESH_MAX_HOURS", "24"))
+OCA_OPEN_AGING_MIN_HOURS  = float(os.getenv("OCA_OPEN_AGING_MIN_HOURS", "24"))
+OCA_OPEN_AGING_MAX_HOURS  = float(os.getenv("OCA_OPEN_AGING_MAX_HOURS", "48"))
+OCA_PROGRESS_MIN_HOURS    = float(os.getenv("OCA_PROGRESS_MIN_HOURS", "24"))
+OCA_WAITING_MIN_HOURS     = float(os.getenv("OCA_WAITING_MIN_HOURS", "48"))
+
+# ── Schedules ──────────────────────────────────────────────────────────────────
+FAST_PATH_INTERVAL_SECONDS = int(os.getenv("FAST_PATH_INTERVAL_SECONDS", "300"))    # 5 min
+DIGEST_INTERVAL_SECONDS    = int(os.getenv("DIGEST_INTERVAL_SECONDS", "7200"))      # 2 hr

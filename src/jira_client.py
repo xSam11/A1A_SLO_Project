@@ -39,29 +39,31 @@ class JiraClient:
 
     def _search(self, jql: str, fields: list[str], max_results: int = 200) -> list[dict]:
         """Run a JQL search and return all issues (handles pagination)."""
-        url = f"{self._base}/rest/api/3/search"
+        url = f"{self._base}/rest/api/3/search/jql"
         issues: list[dict] = []
-        start_at = 0
+        next_page_token: str | None = None
 
         while True:
-            resp = self._session.get(url, params={
+            params = {
                 "jql": jql,
                 "fields": ",".join(fields),
                 "maxResults": max_results,
-                "startAt": start_at,
-            })
+            }
+            if next_page_token:
+                params["nextPageToken"] = next_page_token
+
+            resp = self._session.get(url, params=params)
             resp.raise_for_status()
             data = resp.json()
-            batch = data.get("issues", [])
-            issues.extend(batch)
+            issues.extend(data.get("issues", []))
 
-            if start_at + len(batch) >= data.get("total", 0):
+            next_page_token = data.get("nextPageToken")
+            if not next_page_token:
                 break
-            start_at += len(batch)
 
         log.debug("JQL '%s' returned %d issues", jql, len(issues))
         return issues
-
+        
     def _normalize(self, issue: dict[str, Any]) -> dict:
         """Flatten a raw Jira issue into a clean dict for the rules engine."""
         fields = issue.get("fields", {})
@@ -86,15 +88,8 @@ class JiraClient:
     # ── Public methods ────────────────────────────────────────────────────────
 
     def get_open_a1a_tickets(self) -> list[dict]:
-        """Return all tickets in the A1A project with status = Open."""
-        jql = (
-            f'project = "{config.JIRA_A1A_PROJECT}" '
-            f'AND status = "Open" '
-            f'ORDER BY created ASC'
-        )
-        fields = ["summary", "status", "assignee", "priority", "created", "updated", "project"]
-        issues = self._search(jql, fields)
-        return [self._normalize(i) for i in issues]
+        """Return all A1A tickets in the 'Open' (Ready) status."""
+        return self.get_tickets_by_status(config.JIRA_A1A_PROJECT, config.A1A_STATUS_OPEN)
 
     def get_open_oca_tickets(self) -> list[dict]:
         """Return all OCA tickets that are NOT closed (covers Rules 2 + 3)."""
@@ -114,6 +109,31 @@ class JiraClient:
             f'AND status = "In Progress" '
             f'ORDER BY created ASC'
         )
+        fields = ["summary", "status", "assignee", "priority", "created", "updated", "project"]
+        issues = self._search(jql, fields)
+        return [self._normalize(i) for i in issues]
+    
+    def get_tickets_by_status(self, project: str, status: str) -> list[dict]:
+        """Return all tickets in `project` with the exact given status."""
+        jql = f'project = "{project}" AND status = "{status}" ORDER BY created ASC'
+        fields = ["summary", "status", "assignee", "priority", "created", "updated", "project"]
+        issues = self._search(jql, fields)
+        return [self._normalize(i) for i in issues]
+
+    def get_project_tickets(
+        self,
+        project: str,
+        exclude_statuses: list[str] | None = None,
+        issue_types: list[str] | None = None,
+    ) -> list[dict]:
+        """Return all tickets in `project`, excluding statuses and optionally filtered by issue type."""
+        exclude_statuses = exclude_statuses or ["Done"]
+        exclusion = " AND ".join(f'status != "{s}"' for s in exclude_statuses)
+        jql = f'project = "{project}" AND {exclusion}'
+        if issue_types:
+            types_clause = ", ".join(f'"{t}"' for t in issue_types)
+            jql += f' AND type in ({types_clause})'
+        jql += ' ORDER BY created ASC'
         fields = ["summary", "status", "assignee", "priority", "created", "updated", "project"]
         issues = self._search(jql, fields)
         return [self._normalize(i) for i in issues]

@@ -20,8 +20,8 @@ import time
 import config
 from src.dedup import make_store, DedupStore
 from src.jira_client import JiraClient
-from src.rules import evaluate_all, Alert
-from src.slack_notifier import send_alert
+from src.rules import evaluate_all, build_a1a_digest, build_oca_digest, rule1_a1a_idle, Alert
+from src.slack_notifier import send_alert, send_digest
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,85 +55,66 @@ def _filter_with_dedup(alerts: list[Alert], store: DedupStore) -> list[Alert]:
     return to_send
 
 
-def poll_once(jira: JiraClient, store: DedupStore) -> int:
-    """
-    Execute one full poll cycle.
-    Returns the number of alerts actually sent to Slack.
-    """
-    log.info("── Poll cycle starting ──────────────────────────────────")
+def poll_fast(jira: JiraClient, store: DedupStore) -> int:
+    """A1A fast-path: Ready tickets idle > A1A_IDLE_MINUTES (30 min). Fires individual alerts."""
+    log.info("── Fast-path poll (A1A '%s' > %.0f min) ──", config.A1A_STATUS_OPEN, config.A1A_IDLE_MINUTES)
+    a1a_open = jira.get_open_a1a_tickets()
+    log.info("Fetched %d A1A '%s' ticket(s)", len(a1a_open), config.A1A_STATUS_OPEN)
 
-    # 1. Fetch
-    log.info("Fetching tickets from Jira...")
-    a1a_open        = jira.get_open_a1a_tickets()
-    oca_open        = jira.get_open_oca_tickets()
-    a1a_in_progress = jira.get_in_progress_tickets(config.JIRA_A1A_PROJECT)
+    candidates = [a for a in (rule1_a1a_idle(t) for t in a1a_open) if a]
+    to_send = _filter_with_dedup(candidates, store)
 
-    log.info(
-        "Fetched: %d A1A open, %d OCA open/unclosed, %d A1A in-progress",
-        len(a1a_open), len(oca_open), len(a1a_in_progress),
-    )
-
-    # 2. Evaluate rules
-    candidate_alerts = evaluate_all(a1a_open, oca_open, a1a_in_progress)
-    log.info("%d rule(s) fired before dedup", len(candidate_alerts))
-
-    # 3. Dedup filter
-    alerts_to_send = _filter_with_dedup(candidate_alerts, store)
-    log.info("%d alert(s) will be sent after dedup", len(alerts_to_send))
-
-    # 4. Send + mark
     sent = 0
-    for alert in alerts_to_send:
+    for alert in to_send:
         if send_alert(alert):
             store.mark_alerted(alert.dedup_key)
             sent += 1
 
-    log.info("── Poll cycle done. Sent %d alert(s). ──────────────────", sent)
+    log.info("── Fast-path done. Sent %d alert(s). ──", sent)
     return sent
 
 
-def run_loop(jira: JiraClient, store: DedupStore) -> None:
-    """Continuous polling loop (for running as a long-lived process)."""
-    log.info(
-        "Starting continuous loop with %ds interval. Ctrl-C to stop.",
-        config.POLL_INTERVAL_SECONDS,
+def poll_digest_a1a(jira: JiraClient) -> bool:
+    """A1A-only digest."""
+    log.info("── A1A digest poll starting ──")
+    a1a_tickets = jira.get_project_tickets(
+        config.JIRA_A1A_PROJECT, exclude_statuses=["Done", "Closed"], issue_types=["Incident"],
     )
-    while True:
-        try:
-            poll_once(jira, store)
-        except Exception:
-            log.exception("Unexpected error during poll — will retry next cycle")
-        time.sleep(config.POLL_INTERVAL_SECONDS)
+    log.info("Fetched %d A1A active incident(s) for digest", len(a1a_tickets))
+    digest = {"a1a": build_a1a_digest(a1a_tickets)}
+    ok = send_digest(digest)
+    log.info("── A1A digest done. Sent: %s ──", ok)
+    return ok
 
 
-# ── Lambda entry point ────────────────────────────────────────────────────────
-
-def lambda_handler(event: dict, context: object) -> dict:
-    """AWS Lambda handler. Set REDIS_URL for state persistence between invocations."""
-    jira  = JiraClient()
-    store = make_store()
-    sent  = poll_once(jira, store)
-    return {"statusCode": 200, "sent": sent}
-
+def poll_digest_oca(jira: JiraClient) -> bool:
+    """OCA-only digest."""
+    log.info("── OCA digest poll starting ──")
+    oca_tickets = jira.get_project_tickets(config.JIRA_OCA_PROJECT, exclude_statuses=["Done", "Closed"])
+    log.info("Fetched %d OCA active ticket(s) for digest", len(oca_tickets))
+    digest = {"oca": build_oca_digest(oca_tickets)}
+    ok = send_digest(digest)
+    log.info("── OCA digest done. Sent: %s ──", ok)
+    return ok
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Jira SLO alert poller")
     parser.add_argument(
-        "--loop", action="store_true",
-        help="Run continuously instead of a single poll"
+        "--mode", choices=["fast", "digest-a1a", "digest-oca"], required=True,
+        help="fast = A1A instant check; digest-a1a/digest-oca = single board digest",
     )
     args = parser.parse_args()
+    jira, store = JiraClient(), make_store()
 
-    jira  = JiraClient()
-    store = make_store()
-
-    if args.loop:
-        run_loop(jira, store)
-    else:
-        poll_once(jira, store)
+    if args.mode == "fast":
+        poll_fast(jira, store)
+    elif args.mode == "digest-a1a":
+        poll_digest_a1a(jira)
+    elif args.mode == "digest-oca":
+        poll_digest_oca(jira)
 
 
 if __name__ == "__main__":
-    main()
+        main()

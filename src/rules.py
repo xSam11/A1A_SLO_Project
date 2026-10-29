@@ -228,3 +228,67 @@ def evaluate_all(
     alerts.extend(order_alerts)
 
     return alerts
+
+# ── Digest bucket builders ─────────────────────────────────────────────────────
+
+def build_a1a_digest(a1a_tickets: list[dict]) -> dict[str, list[dict]]:
+    """Bucket all non-closed A1A tickets (both workflows) into the 3 digest sections."""
+    open_statuses    = (config.A1A_STATUS_OPEN, config.A1A_INC_STATUS_OPEN, config.A1A_INC_STATUS_REOPENED)
+    active_statuses  = (config.A1A_STATUS_ACTIVE, config.A1A_INC_STATUS_PROGRESS)
+    waiting_statuses = (
+        config.A1A_STATUS_WAITING, config.A1A_STATUS_BLOCKED,
+        config.A1A_INC_STATUS_WAITING, config.A1A_INC_STATUS_BLOCKED,
+    )
+
+    open_bucket = [
+        t for t in a1a_tickets
+        if t["status"] in open_statuses and _idle_minutes(t) > config.A1A_IDLE_MINUTES
+    ]
+    active_bucket = [
+        t for t in a1a_tickets
+        if t["status"] in active_statuses
+        and config.A1A_ACTIVE_MIN_HOURS <= _idle_minutes(t) / 60 <= config.A1A_ACTIVE_MAX_HOURS
+    ]
+    waiting_bucket = [
+        t for t in a1a_tickets
+        if t["status"] in waiting_statuses
+        and _idle_minutes(t) / 60 > config.A1A_WAITING_DAYS * 24
+    ]
+    return {"open": open_bucket, "active": active_bucket, "waiting": waiting_bucket}
+
+
+def build_oca_digest(oca_tickets: list[dict]) -> dict[str, list[dict]]:
+    """Bucket all non-closed OCA tickets (both workflows) into the 4 digest sections."""
+    open_statuses     = (config.OCA_STATUS_OPEN, config.OCA_INC_STATUS_OPEN)
+    progress_statuses = (config.OCA_STATUS_PROGRESS, config.OCA_INC_STATUS_PROGRESS)
+    blocked_statuses  = (
+        config.OCA_STATUS_WAITING, config.OCA_STATUS_BLOCKED,
+        config.OCA_INC_STATUS_NEEDINFO, config.OCA_INC_STATUS_WAITING,
+        config.OCA_INC_STATUS_WAITFB, config.OCA_INC_STATUS_BLOCKED,
+    )
+
+    open_fresh = [
+        t for t in oca_tickets
+        if t["status"] in open_statuses and _age_hours(t) < config.OCA_OPEN_FRESH_MAX_HOURS
+    ]
+    open_aging = [
+        t for t in oca_tickets
+        if t["status"] in open_statuses
+        and config.OCA_OPEN_AGING_MIN_HOURS <= _age_hours(t) <= config.OCA_OPEN_AGING_MAX_HOURS
+    ]
+    in_progress = [
+        t for t in oca_tickets
+        if t["status"] in progress_statuses and _idle_minutes(t) / 60 >= config.OCA_PROGRESS_MIN_HOURS
+    ]
+    blocked = [
+        t for t in oca_tickets
+        if t["status"] in blocked_statuses and _idle_minutes(t) / 60 > config.OCA_WAITING_MIN_HOURS
+    ]
+    return {"open_fresh": open_fresh, "open_aging": open_aging, "in_progress": in_progress, "blocked": blocked}
+
+def build_digest(a1a_tickets: list[dict], oca_tickets: list[dict]) -> dict:
+    """Build the full two-board digest structure for Slack."""
+    return {
+        "a1a": build_a1a_digest(a1a_tickets),
+        "oca": build_oca_digest(oca_tickets),
+    }
